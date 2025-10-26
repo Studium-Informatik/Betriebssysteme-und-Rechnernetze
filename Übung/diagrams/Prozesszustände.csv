@@ -1,0 +1,34 @@
+Zeit (ms),Ereignis,Laufender Prozess,A,B,C,A Laufzeit,B Laufzeit,C Laufzeit,Ready-Queue,HDD-Queue (35 ms),USB-Queue (45 ms)
+Start,-,-,Rechenbereit,Rechenbereit,Rechenbereit,0,0,0,"A, B, C",-,-
+0,Scheduler wählt A,A,Rechnend,Rechenbereit,Rechenbereit,5,,,"B, C",-,-
+5,-,A,Rechnend,Rechenbereit,Rechenbereit,10,,,"B, C, A",-,-
+10,Scheduler wählt B,B,Rechenbereit,Rechnend,Rechenbereit,,5,,"C, A",-,-
+15,"B blockiert, C wird gewählt",C,Rechenbereit,Blockiert,Rechnend,,,5,A,-,B
+20,-,C,Rechenbereit,Blockiert,Rechnend,,,10,"A, C",-,B
+25,Scheduler wählt A,A,Rechnend,Blockiert,Rechenbereit,15,,,C,-,B
+30,"A blockiert, C wird gewählt",C,Blockiert,Blockiert,Rechnend,,,15,-,A,B
+35,-,C,Blockiert,Blockiert,Rechnend,,,20,C,A,B
+40,Scheduler wählt C,C,Blockiert,Blockiert,Rechnend,,,25,-,A,B
+45,-,C,Blockiert,Blockiert,Rechnend,,,30,C,A,B
+50,Scheduler wählt C,C,Blockiert,Blockiert,Rechnend,,,35,-,A,B
+55,-,C,Blockiert,Blockiert,Rechnend,,,40,"B, C",A,B
+60,Scheduler wählt B,B,Blockiert,Rechnend,Rechenbereit,,10,,C,A,-
+65,-,B,Rechenbereit,Rechnend,Rechenbereit,,15,,"C, A",-,-
+70,Scheduler wählt C,C,Rechenbereit,Rechenbereit,Rechnend,,,45,"A, B",-,-
+75,-,C,Rechenbereit,Rechenbereit,Rechnend,,,50,"A, B",-,-
+80,Scheduler wählt A,A,Rechnend,Rechenbereit,Done,20,,,B,-,-
+85,"A blockiert, B wird gewählt",B,Blockiert,Rechnend,Done,,20,,-,-,A
+90,-,B,Blockiert,Rechnend,Done,,25,,B,-,A
+95,Scheduler wählt C,B,Blockiert,Rechnend,Done,,30,,-,-,A
+100,-,B,Blockiert,Rechnend,Done,,35,,-,-,A
+105,Scheduler wählt B,B,Blockiert,Rechnend,Done,,40,,-,-,A
+110,-,B,Blockiert,Rechnend,Done,,45,,-,-,A
+115,Scheduler wählt B,B,Blockiert,Rechnend,Done,,50,,-,-,A
+120,"B ist done, Scheduler wartet",-,Blockiert,Done,Done,,,,-,-,A
+125,-,-,Blockiert,Done,Done,,,,A,-,A
+130,Scheduler wählt A,A,Rechnend,Done,Done,25,,,A,-,-
+135,-,A,Rechnend,Done,Done,30,,,-,-,-
+140,Scheduler wählt A,A,Rechnend,Done,Done,35,,,A,-,-
+145,-,A,Rechnend,Done,Done,40,,,-,-,-
+150,Scheduler wählt A,A,Rechnend,Done,Done,45,,,A,-,-
+155,-,A,Done,Done,Done,50,,,-,-,-
