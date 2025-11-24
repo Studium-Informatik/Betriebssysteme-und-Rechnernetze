@@ -1,3 +1,5 @@
+
+c ähnlicher pseudocode bei reserved/block pipies. Funktionsnahmen ähnlich
 # Prozessor
 [[GBR VL 03]]
 https://man7.org/linux/man-pages/man1/ps.1.html
