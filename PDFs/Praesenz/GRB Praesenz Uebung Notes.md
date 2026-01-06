@@ -12,3 +12,12 @@ modifiziertes Gantt-Diagramm: y-Achse = Priorität
 	1. Prozess war blockiert (Netzwerk-I/O) und erhält nun die CPU 
 	2. Prozess ist GUI-Thread 
 	3. Prozess hat schon seit mehr als 4 Sekunden nicht mehr gerechnet
+	
+	
+
+# 
+
+Working Set ist nicht gutartig, bei Worst case
+
+Aufgabe 2: Speicherverwaltung
+interne und externe Fragmentierung Uebung 05 Seite 19
