@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Process Scheduling: CFS (RB-Tree) vs Windows</title>
+    <style>
+        :root {
+            --bg: #1e1e2e;
+            --surface: #313244;
+            --text: #cdd6f4;
+            --accent: #89b4fa;
+            --border: #45475a;
+        }
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        h1, h2 { margin-top: 0; }
+        .panel {
+            background-color: var(--surface);
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .controls-row {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        input, select, button {
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--bg);
+            color: var(--text);
+            font-size: 14px;
+        }
+        button {
+            background-color: var(--accent);
+            color: #11111b;
+            font-weight: bold;
+            cursor: pointer;
+            border: none;
+            transition: opacity 0.2s;
+        }
+        button:hover { opacity: 0.8; }
+        button:disabled { background-color: var(--border); cursor: not-allowed; }
+        
+        .queues-container {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            min-height: 120px;
+            align-items: flex-start;
+        }
+        .process-card {
+            background: var(--bg);
+            border: 2px solid;
+            border-radius: 6px;
+            padding: 10px;
+            width: 140px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            font-size: 13px;
+        }
+        
+        /* Tree container styling */
+        #tree-container {
+            width: 100%;
+            height: 300px;
+            position: relative;
+            background: var(--bg);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+            display: none; /* Hidden by default, shown in CFS mode */
+        }
+        svg { width: 100%; height: 100%; }
+        
+        .node-group { transition: transform 0.3s ease; }
+        .node-rect {
+            fill: var(--surface);
+            stroke-width: 3px;
+        }
+        .node-text {
+            fill: var(--text);
+            font-family: sans-serif;
+            font-size: 12px;
+            text-anchor: middle;
+        }
+        .node-id { font-weight: bold; font-size: 14px; }
+        .link { stroke: #6c7086; stroke-width: 2px; }
+        
+        /* Highlight the leftmost node (next to run) */
+        @keyframes pulse {
+            0% { filter: drop-shadow(0 0 2px var(--accent)); }
+            50% { filter: drop-shadow(0 0 10px var(--accent)); }
+            100% { filter: drop-shadow(0 0 2px var(--accent)); }
+        }
+        .leftmost-node { animation: pulse 1.5s infinite; }
+
+        .gantt-wrapper { overflow-x: auto; padding-bottom: 10px; }
+        .gantt-chart {
+            display: flex;
+            height: 50px;
+            background: var(--bg);
+            border-radius: 4px;
+            border: 1px solid var(--border);
+            min-width: 100%;
+            width: max-content;
+        }
+        .gantt-block {
+            width: 40px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #111;
+            font-weight: bold;
+            font-size: 14px;
+            border-right: 1px solid rgba(0,0,0,0.2);
+        }
+        .info-text { font-size: 0.9rem; color: #a6adc8; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+
+    <div class="panel">
+        <h1>Scheduler Settings & Controls</h1>
+        <div class="controls-row" style="margin-bottom: 20px;">
+            <label>Mode:</label>
+            <select id="modeSelect" onchange="changeMode(this.value)">
+                <option value="cfs">Linux CFS (Red-Black Tree & Nice Values)</option>
+                <option value="win">Windows (Priority / Quantum Queue)</option>
+            </select>
+            <span style="margin-left:auto;"><strong>Clock:</strong> <span id="clockDisplay">0</span></span>
+        </div>
+        
+        <div class="controls-row">
+            <label>Burst Time:</label>
+            <input type="number" id="burstInput" value="10" min="1" max="50" style="width: 60px;">
+            
+            <label id="paramLabel">Nice (-20 to 19):</label>
+            <input type="number" id="priorityInput" value="0" min="-20" max="19" style="width: 60px;">
+            
+            <button onclick="addProcess()">+ Add Process</button>
+            <div style="border-left: 2px solid var(--border); height: 30px; margin: 0 10px;"></div>
+            <button onclick="step()" id="stepBtn">Step (1 Tick)</button>
+            <button onclick="toggleAutoRun()" id="autoBtn">Auto Run</button>
+            <button onclick="reset()" style="background-color: #f38ba8;">Reset</button>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h2>Ready Queue State</h2>
+        <div id="infoText" class="info-text">
+            
+            CFS stores runnable tasks in a Red-Black Tree sorted by Virtual Runtime (vruntime). The scheduler always picks the leftmost node (lowest vruntime). Lower nice values = higher weight = slower vruntime growth.
+        </div>
+        
+        <div id="queues" class="queues-container"></div>
+        
+        <div id="tree-container">
+            <svg id="tree-svg"></svg>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h2>Gantt Chart (Execution Timeline)</h2>
+        <div class="gantt-wrapper">
+            <div id="gantt" class="gantt-chart"></div>
+        </div>
+    </div>
+
+<script>
+    let mode = 'cfs';
+    let time = 0;
+    let processes = [];
+    let processCounter = 1;
+    let autoRunInterval = null;
+    let activeProcessId = null;
+
+    const colors = ['#f38ba8', '#a6e3a1', '#f9e2af', '#89b4fa', '#fab387', '#cba6f7', '#94e2d5', '#f5c2e7'];
+
+    function changeMode(newMode) {
+        mode = newMode;
+        const paramLabel = document.getElementById('paramLabel');
+        const paramInput = document.getElementById('priorityInput');
+        const infoText = document.getElementById('infoText');
+        
+        if (mode === 'cfs') {
+            paramLabel.innerText = 'Nice (-20 to 19):';
+            paramInput.min = -20; paramInput.max = 19; paramInput.value = 0;
+            infoText.innerText = "CFS stores runnable tasks in a Red-Black Tree sorted by Virtual Runtime (vruntime). The scheduler always picks the leftmost node (lowest vruntime). Lower nice values = higher weight = slower vruntime growth.";
+        } else {
+            paramLabel.innerText = 'Priority (1-31):';
+            paramInput.min = 1; paramInput.max = 31; paramInput.value = 15;
+            infoText.innerText = "Windows picks the highest Priority task from flat queues. Tasks run for a 'Quantum'. When it runs out, priority drops slightly to prevent starvation.";
+        }
+        reset();
+    }
+
+    function addProcess() {
+        const burst = parseInt(document.getElementById('burstInput').value) || 10;
+        let param = parseInt(document.getElementById('priorityInput').value) || 0;
+        
+        let nice = null, weight = null, priority = null;
+
+        if (mode === 'cfs') {
+            nice = Math.max(-20, Math.min(19, param)); // Clamp between -20 and 19
+            // Standard Linux weight calculation approximation
+            weight = 1024 / Math.pow(1.25, nice);
+        } else {
+            priority = Math.max(1, Math.min(31, param)); // Clamp between 1 and 31
+        }
+        
+        processes.push({
+            id: 'P' + processCounter,
+            burst: burst,
+            remaining: burst,
+            nice: nice,
+            weight: weight,
+            vruntime: 0,
+            priority: priority,
+            quantum: 3,
+            lastRun: -1,
+            color: colors[(processCounter - 1) % colors.length]
+        });
+        processCounter++;
+        render();
+    }
+
+    function step() {
+        let activeProcesses = processes.filter(p => p.remaining > 0);
+        if (activeProcesses.length === 0) {
+            if (autoRunInterval) toggleAutoRun();
+            return;
+        }
+
+        let selected = null;
+
+        if (mode === 'cfs') {
+            activeProcesses.sort((a, b) => {
+                if (Math.abs(a.vruntime - b.vruntime) < 0.01) return a.lastRun - b.lastRun;
+                return a.vruntime - b.vruntime;
+            });
+            selected = activeProcesses[0]; // Leftmost node
+            
+            selected.remaining -= 1;
+            selected.lastRun = time;
+            
+            // vruntime += 1 * (weight_NICE_0 / weight)
+            selected.vruntime += (1024 / selected.weight); 
+            
+        } else if (mode === 'win') {
+            activeProcesses.sort((a, b) => {
+                if (a.priority === b.priority) return a.lastRun - b.lastRun;
+                return b.priority - a.priority;
+            });
+            selected = activeProcesses[0];
+            
+            selected.remaining -= 1;
+            selected.quantum -= 1;
+            selected.lastRun = time;
+            
+            if (selected.quantum === 0 && selected.remaining > 0) {
+                if (selected.priority > 1) selected.priority -= 1; 
+                selected.quantum = 3; 
+            }
+        }
+
+        activeProcessId = selected.id;
+        addGanttBlock(selected);
+        time++;
+        render();
+    }
+
+    function addGanttBlock(process) {
+        const chart = document.getElementById('gantt');
+        const block = document.createElement('div');
+        block.className = 'gantt-block';
+        block.style.backgroundColor = process.color;
+        block.innerText = process.id;
+        chart.appendChild(block);
+        chart.parentElement.scrollLeft = chart.parentElement.scrollWidth;
+    }
+
+    function toggleAutoRun() {
+        const btn = document.getElementById('autoBtn');
+        const stepBtn = document.getElementById('stepBtn');
+        if (autoRunInterval) {
+            clearInterval(autoRunInterval);
+            autoRunInterval = null;
+            btn.innerText = 'Auto Run';
+            stepBtn.disabled = false;
+        } else {
+            autoRunInterval = setInterval(step, 400);
+            btn.innerText = 'Pause';
+            stepBtn.disabled = true;
+        }
+    }
+
+    function reset() {
+        if (autoRunInterval) toggleAutoRun();
+        processes = [];
+        time = 0;
+        processCounter = 1;
+        activeProcessId = null;
+        document.getElementById('gantt').innerHTML = '';
+        render();
+    }
+
+    // --- TREE DRAWING LOGIC FOR CFS ---
+    function buildBalancedTree(arr) {
+        if (!arr.length) return null;
+        const mid = Math.floor(arr.length / 2);
+        return {
+            process: arr[mid],
+            left: buildBalancedTree(arr.slice(0, mid)),
+            right: buildBalancedTree(arr.slice(mid + 1))
+        };
+    }
+
+    function assignRBColors(node, isRoot = true) {
+        if (!node) return;
+        node.rbColor = isRoot ? '#f38ba8' : (Math.random() > 0.5 ? '#f38ba8' : '#11111b'); // Simplified RB coloring
+        if (isRoot) node.rbColor = '#1e1e2e'; // Root is "black" (dark theme)
+        
+        // Ensure standard RB visuals: Black borders or Red borders
+        node.stroke = node.rbColor === '#f38ba8' ? '#f38ba8' : '#11111b'; 
+        
+        assignRBColors(node.left, false);
+        assignRBColors(node.right, false);
+    }
+
+    function drawTree(node, svg, x, y, xOffset) {
+        if (!node) return;
+
+        // Draw lines to children first so they are behind nodes
+        if (node.left) {
+            const childX = x - xOffset;
+            const childY = y + 60;
+            svg.innerHTML += `<line class="link" x1="${x}" y1="${y}" x2="${childX}" y2="${childY}"/>`;
+            drawTree(node.left, svg, childX, childY, xOffset / 2);
+        }
+        if (node.right) {
+            const childX = x + xOffset;
+            const childY = y + 60;
+            svg.innerHTML += `<line class="link" x1="${x}" y1="${y}" x2="${childX}" y2="${childY}"/>`;
+            drawTree(node.right, svg, childX, childY, xOffset / 2);
+        }
+
+        // Determine if this is the absolute leftmost node (the one being picked)
+        let isLeftmost = true;
+        let temp = node;
+        while(temp.left) temp = temp.left;
+        // Wait, to highlight we need to know if the CURRENT node being drawn is the absolute leftmost of the whole tree.
+        // Handled via activeProcessId check instead for reliability.
+
+        const isActive = node.process.id === activeProcessId || 
+                         (activeProcessId === null && !node.left && xOffset === 200); // Rough guess for initial state
+
+        const rectWidth = 90;
+        const rectHeight = 45;
+
+        // Draw node
+        svg.innerHTML += `
+            <g class="node-group ${isActive ? 'leftmost-node' : ''}" transform="translate(${x - rectWidth/2}, ${y - rectHeight/2})">
+                <rect class="node-rect" width="${rectWidth}" height="${rectHeight}" rx="5" 
+                      style="stroke: ${node.stroke}; fill: ${node.process.color}44" />
+                <text class="node-text node-id" x="${rectWidth/2}" y="18" fill="${node.process.color}">${node.process.id}</text>
+                <text class="node-text" x="${rectWidth/2}" y="35">v: ${node.process.vruntime.toFixed(1)}</text>
+            </g>
+        `;
+    }
+
+    function render() {
+        document.getElementById('clockDisplay').innerText = time;
+        const queuesDiv = document.getElementById('queues');
+        const treeDiv = document.getElementById('tree-container');
+        const svg = document.getElementById('tree-svg');
+        
+        let activeProcesses = processes.filter(p => p.remaining > 0);
+
+        if (mode === 'cfs') {
+            queuesDiv.style.display = 'none';
+            treeDiv.style.display = 'block';
+            svg.innerHTML = '';
+            
+            if (activeProcesses.length > 0) {
+                // Sort by vruntime to build the tree
+                activeProcesses.sort((a, b) => a.vruntime - b.vruntime);
+                
+                // Build balanced BST and assign Red/Black visual properties
+                const treeRoot = buildBalancedTree(activeProcesses);
+                assignRBColors(treeRoot);
+                
+                // If no active process is running yet, the next one is the first in sorted array
+                if (!activeProcessId) activeProcessId = activeProcesses[0].id;
+
+                // Draw starting from top center
+                drawTree(treeRoot, svg, treeDiv.clientWidth / 2, 40, treeDiv.clientWidth / 4);
+            }
+        } else {
+            queuesDiv.style.display = 'flex';
+            treeDiv.style.display = 'none';
+            queuesDiv.innerHTML = '';
+            
+            activeProcesses.sort((a, b) => a.priority === b.priority ? a.lastRun - b.lastRun : b.priority - a.priority);
+
+            activeProcesses.forEach(p => {
+                const card = document.createElement('div');
+                card.className = `process-card ${p.id === activeProcessId ? 'active' : ''}`;
+                card.style.borderColor = p.color;
+                card.innerHTML = `
+                    <strong style="color: ${p.color}; font-size: 16px;">${p.id}</strong>
+                    <div>Burst Left: ${p.remaining}</div>
+                    <div>Priority: ${p.priority}</div>
+                    <div>Quantum Left: ${p.quantum}</div>
+                `;
+                queuesDiv.appendChild(card);
+            });
+        }
+        activeProcessId = null; 
+    }
+
+    // Initialize layout
+    changeMode('cfs');
+    
+    // Handle window resize for redrawing tree correctly
+    window.addEventListener('resize', () => {
+        if(mode === 'cfs') render();
+    });
+</script>
+</body>
+</html>

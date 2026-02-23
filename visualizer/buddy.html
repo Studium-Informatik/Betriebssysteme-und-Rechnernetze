@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Buddy System & Fragmentation Visualization</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: #f4f4f9;
+            color: #333;
+            max-width: 950px;
+            margin: 40px auto;
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+        }
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 20px;
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        input[type="number"] {
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: 160px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        button:hover:not(:disabled) { background-color: #2980b9; }
+        button:disabled { background-color: #95a5a6; cursor: not-allowed; opacity: 0.7; }
+        #stepBtn { background-color: #f39c12; }
+        #stepBtn:hover:not(:disabled) { background-color: #d68910; }
+        .step-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: bold;
+            padding: 10px;
+            background: #ecf0f1;
+            border-radius: 4px;
+        }
+        .stats-panel {
+            display: flex;
+            justify-content: space-between;
+            background: #2c3e50;
+            color: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            font-size: 14px;
+        }
+        .stat-box {
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 20px;
+            font-weight: bold;
+            margin-top: 5px;
+            color: #3498db;
+        }
+        .stat-value.warning { color: #f1c40f; }
+        .stat-value.danger { color: #e74c3c; }
+
+        #memory-map {
+            display: flex;
+            width: 100%;
+            height: 90px;
+            background: #ecf0f1;
+            border: 2px solid #2c3e50;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .block {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-right: 1px solid rgba(0,0,0,0.3);
+            font-size: 14px;
+            font-weight: bold;
+            color: white;
+            transition: all 0.3s ease;
+            box-sizing: border-box;
+            position: relative;
+        }
+        .block:last-child { border-right: none; }
+        .free {
+            background-color: #2ecc71;
+            cursor: default;
+            flex-direction: column;
+        }
+        
+        .used {
+            cursor: pointer;
+            display: flex;
+            flex-direction: row; /* Split actual vs wasted */
+        }
+        
+        .used-actual {
+            background-color: #e74c3c;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            border-right: 1px dashed rgba(255,255,255,0.4);
+        }
+        .used-wasted {
+            background: repeating-linear-gradient(
+                45deg,
+                #c0392b,
+                #c0392b 10px,
+                #e74c3c 10px,
+                #e74c3c 20px
+            );
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            opacity: 0.9;
+        }
+        .used:hover .used-actual, .used:hover .used-wasted {
+            filter: brightness(0.85);
+        }
+        
+        .small-text { font-size: 11px; font-weight: normal; opacity: 0.9; text-align: center; }
+
+        .highlight {
+            box-shadow: inset 0 0 0 4px #f1c40f;
+            z-index: 10;
+        }
+        .highlight::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(241, 196, 15, 0.3);
+            pointer-events: none;
+        }
+
+        #log {
+            padding: 15px;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            max-height: 250px;
+            overflow-y: auto;
+            font-family: monospace;
+        }
+        .log-entry { margin-bottom: 5px; line-height: 1.4; }
+        .error { color: #e74c3c; }
+        .success { color: #2ecc71; font-weight: bold; }
+        .info { color: #3498db; }
+        .step-info { color: #f39c12; font-weight: bold; }
+        .frag-warn { color: #9b59b6; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <h1>Buddy System & Fragmentation</h1>
+    
+    <div class="controls">
+        <input type="number" id="allocSize" placeholder="Size (e.g. 40)" min="1" max="1024">
+        <button id="allocBtn" onclick="handleAllocate()">Allocate</button>
+        
+        <div class="step-toggle">
+            <input type="checkbox" id="stepMode"> 
+            <label for="stepMode">Step-by-Step Mode</label>
+        </div>
+        
+        <button id="stepBtn" onclick="nextStep()" disabled>Next Step ⏭️</button>
+    </div>
+
+    <div class="stats-panel" id="statsPanel">
+        </div>
+
+    <div id="memory-map"></div>
+    <div id="log"></div>
+
+    <script>
+        const TOTAL_MEMORY = 2048;
+        let root = { size: TOTAL_MEMORY, isFree: true, isLeaf: true, id: null, highlight: false, requestedSize: 0 };
+        let nextProcessId = 1;
+        
+        let isProcessing = false;
+        let stepPromiseResolver = null;
+
+        function getNextPowerOf2(n) {
+            return Math.pow(2, Math.ceil(Math.log2(n)));
+        }
+
+        async function pauseIfStepping(message, type = "step-info") {
+            if (message) log(message, type);
+            render();
+            
+            const isStepMode = document.getElementById('stepMode').checked;
+            if (isStepMode) {
+                document.getElementById('stepBtn').disabled = false;
+                await new Promise(resolve => stepPromiseResolver = resolve);
+                document.getElementById('stepBtn').disabled = true;
+            } else {
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+        }
+
+        function nextStep() {
+            if (stepPromiseResolver) {
+                stepPromiseResolver();
+                stepPromiseResolver = null;
+            }
+        }
+
+        function clearHighlights(node) {
+            if (!node) return;
+            node.highlight = false;
+            clearHighlights(node.left);
+            clearHighlights(node.right);
+        }
+
+        function setHighlight(node) {
+            clearHighlights(root);
+            if (node) node.highlight = true;
+            render();
+        }
+
+        async function allocate(node, targetSize, requestedSize, allocId) {
+            setHighlight(node);
+            await pauseIfStepping(`Evaluating block of size ${node.size}...`);
+
+            if (!node.isLeaf) {
+                await pauseIfStepping(`Block is split. Searching LEFT child (size ${node.size/2})...`);
+                if (await allocate(node.left, targetSize, requestedSize, allocId)) return true;
+                
+                setHighlight(node);
+                await pauseIfStepping(`Left child failed/full. Searching RIGHT child (size ${node.size/2})...`);
+                return await allocate(node.right, targetSize, requestedSize, allocId);
+            }
+
+            if (!node.isFree) {
+                await pauseIfStepping(`Block size ${node.size} is currently used. Backtracking...`, "info");
+                return false;
+            }
+            
+            if (node.size < targetSize) {
+                await pauseIfStepping(`Block size ${node.size} is too small (need ${targetSize}). Backtracking...`, "info");
+                return false;
+            }
+
+            if (node.size === targetSize) {
+                node.isFree = false;
+                node.id = allocId;
+                node.requestedSize = requestedSize;
+                setHighlight(node);
+                
+                let fragMsg = "";
+                let wasted = node.size - requestedSize;
+                if (wasted > 0) fragMsg = ` (Inner Verschnitt: ${wasted} units wasted)`;
+                
+                await pauseIfStepping(`Perfect match found! Allocated block of size ${node.size} to ${allocId}${fragMsg}.`, "success");
+                return true;
+            }
+
+            node.isLeaf = false;
+            node.left = { size: node.size / 2, isFree: true, isLeaf: true, id: null, highlight: false, requestedSize: 0 };
+            node.right = { size: node.size / 2, isFree: true, isLeaf: true, id: null, highlight: false, requestedSize: 0 };
+            
+            setHighlight(node);
+            await pauseIfStepping(`Block is too large (${node.size} > ${targetSize}). Splitting into two ${node.size / 2} buddies.`);
+            
+            return await allocate(node.left, targetSize, requestedSize, allocId);
+        }
+
+        async function freeAndMerge(node, targetId) {
+            if (node.isLeaf) {
+                if (node.id === targetId) {
+                    node.isFree = true;
+                    node.id = null;
+                    node.requestedSize = 0;
+                    setHighlight(node);
+                    await pauseIfStepping(`Target found. Freed memory block of size ${node.size}.`, "success");
+                    return true;
+                }
+                return false;
+            }
+
+            let freed = await freeAndMerge(node.left, targetId);
+            if (!freed) freed = await freeAndMerge(node.right, targetId);
+
+            if (freed) {
+                setHighlight(node);
+                await pauseIfStepping(`Checking if buddies of size ${node.size / 2} can be merged...`);
+                
+                if (node.left.isLeaf && node.right.isLeaf && node.left.isFree && node.right.isFree) {
+                    node.isLeaf = true;
+                    node.left = null;
+                    node.right = null;
+                    node.isFree = true;
+                    node.requestedSize = 0;
+                    setHighlight(node);
+                    await pauseIfStepping(`Success! Merged two free ${node.size / 2} buddies into a ${node.size} block.`, "info");
+                } else {
+                    await pauseIfStepping(`Cannot merge. One or both ${node.size / 2} buddies are currently in use or split.`, "info");
+                }
+            }
+
+            return freed;
+        }
+
+        function toggleUI(disabled) {
+            isProcessing = disabled;
+            document.getElementById('allocBtn').disabled = disabled;
+            document.getElementById('allocSize').disabled = disabled;
+        }
+
+        async function handleAllocate() {
+            if (isProcessing) return;
+            
+            const input = document.getElementById('allocSize');
+            const size = parseInt(input.value);
+
+            if (isNaN(size) || size <= 0) {
+                log("Please enter a valid positive number.", "error");
+                input.focus();
+                return;
+            }
+            if (size > TOTAL_MEMORY) {
+                log(`Cannot allocate ${size}. Max memory is ${TOTAL_MEMORY}.`, "error");
+                input.focus();
+                return;
+            }
+
+            toggleUI(true);
+            try {
+                const requiredSize = getNextPowerOf2(size);
+                const processId = `P${nextProcessId++}`;
+                
+                log(`--- Starting allocation for ${processId} (Requested: ${size}, Buddy Size: ${requiredSize}) ---`, "info");
+
+                const success = await allocate(root, requiredSize, size, processId);
+                
+                clearHighlights(root);
+                updateStats();
+                render();
+
+                if (success) {
+                    log(`Allocation complete for ${processId}.`, "success");
+                } else {
+                    let currentStats = calculateSystemStats(root);
+                    if (currentStats.totalFree >= requiredSize) {
+                        log(`ALLOCATION FAILED: Äußerer Verschnitt (External Fragmentation)! You have ${currentStats.totalFree} total free memory, but the largest contiguous aligned block is only ${currentStats.largestFree}.`, "frag-warn");
+                    } else {
+                        log(`Allocation failed. Not enough memory left.`, "error");
+                    }
+                    nextProcessId--;
+                }
+
+                input.value = '';
+            } finally {
+                toggleUI(false);
+                input.focus();
+            }
+        }
+
+        async function handleFree(processId) {
+            if (isProcessing) {
+                log(`Cannot free ${processId} right now, system is busy.`, "error");
+                return;
+            }
+
+            toggleUI(true);
+            log(`--- Starting free process for ${processId} ---`, "info");
+
+            const success = await freeAndMerge(root, processId);
+            
+            clearHighlights(root);
+            updateStats();
+            render();
+
+            if (success) {
+                log(`Free and merge phase complete for ${processId}.`, "success");
+            }
+
+            toggleUI(false);
+        }
+
+        function calculateSystemStats(node) {
+            let stats = { totalFree: 0, largestFree: 0, internalWasted: 0 };
+            
+            function traverse(n) {
+                if (n.isLeaf) {
+                    if (n.isFree) {
+                        stats.totalFree += n.size;
+                        if (n.size > stats.largestFree) stats.largestFree = n.size;
+                    } else {
+                        stats.internalWasted += (n.size - n.requestedSize);
+                    }
+                } else {
+                    traverse(n.left); traverse(n.right);
+                }
+            }
+            traverse(node);
+            return stats;
+        }
+
+        function updateStats() {
+            const stats = calculateSystemStats(root);
+            const panel = document.getElementById('statsPanel');
+            
+            panel.innerHTML = `
+                <div class="stat-box">
+                    <div>Total Memory</div>
+                    <div class="stat-value">${TOTAL_MEMORY}</div>
+                </div>
+                <div class="stat-box">
+                    <div>Total Free Memory</div>
+                    <div class="stat-value ${stats.totalFree < 256 ? 'warning' : ''}">${stats.totalFree}</div>
+                </div>
+                <div class="stat-box" title="Äußerer Verschnitt Check">
+                    <div>Largest Free Block</div>
+                    <div class="stat-value ${stats.largestFree < stats.totalFree ? 'warning' : ''}">${stats.largestFree}</div>
+                </div>
+                <div class="stat-box" title="Innerer Verschnitt">
+                    <div>Total Internal Wasted</div>
+                    <div class="stat-value ${stats.internalWasted > 0 ? 'danger' : ''}">${stats.internalWasted}</div>
+                </div>
+                <div class="stat-box" title="Äußerer Verschnitt">
+                    <div>Total External Wasted</div>
+                    <div class="stat-value ${stats.totalFree - stats.largestFree > 0 ? 'danger' : ''}">${stats.totalFree - stats.largestFree}</div>
+                </div>
+            `;
+        }
+
+
+        function getNodesToRender(node, isParentHighlighted = false) {
+            const isHighlighted = isParentHighlighted || node.highlight;
+            if (node.isLeaf) return [{ ...node, highlight: isHighlighted }];
+            return [
+                ...getNodesToRender(node.left, isHighlighted),
+                ...getNodesToRender(node.right, isHighlighted)
+            ];
+        }
+
+        function render() {
+            const mapDiv = document.getElementById('memory-map');
+            mapDiv.innerHTML = '';
+            
+            const nodes = getNodesToRender(root);
+            
+            nodes.forEach(node => {
+                const blockDiv = document.createElement('div');
+                let classes = 'block ' + (node.isFree ? 'free' : 'used');
+                if (node.highlight) classes += ' highlight';
+                
+                blockDiv.className = classes;
+                blockDiv.style.flex = node.size; 
+                
+                if (node.isFree) {
+                    blockDiv.innerHTML = `
+                        <span>${node.size}</span>
+                        <span class="small-text">Free</span>
+                    `;
+                } else {
+                    const actualPct = (node.requestedSize / node.size) * 100;
+                    const wastePct = 100 - actualPct;
+                    const wastedSize = node.size - node.requestedSize;
+                    
+                    blockDiv.innerHTML = `
+                        <div class="used-actual" style="width: ${actualPct}%;">
+                            <span>${node.id}</span>
+                            <span class="small-text">Req: ${node.requestedSize}</span>
+                        </div>
+                        ${wastePct > 0 ? `
+                        <div class="used-wasted" style="width: ${wastePct}%;" title="Inner Verschnitt: ${wastedSize} units">
+                            <span class="small-text">${wastedSize > 10 || wastePct > 20 ? 'Waste' : ''}</span>
+                        </div>
+                        ` : ''}
+                    `;
+                }
+
+                if (!node.isFree) {
+                    blockDiv.onclick = () => handleFree(node.id);
+                }
+
+                mapDiv.appendChild(blockDiv);
+            });
+            
+            updateStats();
+        }
+
+        function log(message, type = "info") {
+            const logDiv = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            
+            if(type === "step-info") {
+                entry.textContent = `  ↳ ${message}`;
+            } else {
+                const time = new Date().toLocaleTimeString();
+                entry.textContent = `[${time}] ${message}`;
+            }
+            
+            logDiv.prepend(entry);
+        }
+
+        render();
+        log("System initialized. Enter a size and click Allocate.", "info");
+
+        document.getElementById('allocSize').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') handleAllocate();
+        });
+    </script>
+</body>
+</html>

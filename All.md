@@ -92,7 +92,12 @@
 ### 2.3.2. User-Level vs. Kernel-Level Threads
 ### 2.3.3. Mapping-Modelle (Many-to-one, One-to-one, Many-to-many)
 ### 2.3.4. POSIX Threads (Pthreads)
-#### 2.3.4.1. `pthread_create`, `pthread_join`, `pthread_exit`
+#### 2.3.4.1. `pthread_create`, `pthread_join`, `pthread_exit`, `pthread_detach`
+- **`pthread_create`** → Thread starten
+- **`pthread_join`** → Auf Thread warten / Rückgabewert holen
+- **`pthread_exit`** → Thread explizit beenden
+- **`pthread_detach`** → Thread unabhängig laufen lassen, Ressourcen automatisch freigeben
+
 #### 2.3.4.2. Thread-Safety / Reentrancy
 ### 2.3.5. Java Threads (`extends Thread`, `run`)
 ### 2.3.6. Threads in Python (Global Interpreter Lock - GIL)
